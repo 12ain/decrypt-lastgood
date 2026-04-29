@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "decrypt-lastgood"
+version = "0.1.0"
+description = "Fetch and decrypt Unionman/CMCC optical modem lastgood.xml configuration backups."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "cryptography>=41",
+]
+
+[project.scripts]
+dlg = "decrypt_lastgood.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["decrypt_lastgood"]
