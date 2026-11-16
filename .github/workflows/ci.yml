@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # go.mod 写的是 1.22，这里用新工具链跑检查：1.22 的 Mach-O 在 macOS 15
+          # 上不带 LC_UUID，dyld 会直接 abort（见下面 macOS 的说明）。
+          go-version: "1.24"
+          cache: true
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未格式化："
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: 零依赖检查
+        run: |
+          if go list -m all | tail -n +2 | grep -q .; then
+            echo "本项目不应包含第三方模块依赖"
+            go list -m all
+            exit 1
+          fi
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+      # macOS ARM runner 上 -race 编出来的测试二进制缺 LC_UUID，dyld 加载即 abort，
+      # 属于平台问题而非代码问题，因此只在其他平台启用竞态检测。
+      # （Go 1.22 连普通测试二进制都有这个问题，所以工具链提到了 1.24。）
+      - name: go test
+        if: runner.os != 'macOS'
+        run: go test -race ./...
+      - name: go test (macOS)
+        if: runner.os == 'macOS'
+        run: go test ./...
+      - name: 跨平台构建校验
+        run: |
+          go build -trimpath -o /dev/null ./cmd/dlg

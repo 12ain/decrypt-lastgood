@@ -1,10 +1,21 @@
-.venv/
-__pycache__/
-*.pyc
-*.egg-info/
+# 构建产物
 dist/
-build/
+*.exe
+/dlg
+
+# 本地解密产物：可能包含超管密码，绝不能提交
 lastgood*.xml
 lastgood*.enc
 lastgood*.tar.gz
-.idea
+
+# 编辑器与系统
+.idea/
+.vscode/
+.DS_Store
+
+# 其他
+*.log
+__debug_bin*
+
+# WorkBuddy 工作区数据
+.workbuddy/
