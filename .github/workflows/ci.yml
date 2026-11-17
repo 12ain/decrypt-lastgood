@@ -16,9 +16,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          # go.mod 写的是 1.22，这里用新工具链跑检查：1.22 的 Mach-O 在 macOS 15
-          # 上不带 LC_UUID，dyld 会直接 abort（见下面 macOS 的说明）。
-          go-version: "1.24"
+          # 一个 module：窗口版要 MyGo，命令行跟着用同一个工具链。
+          go-version-file: go.mod
           cache: true
       - name: gofmt
         run: |
@@ -30,11 +29,14 @@ jobs:
           fi
       - name: go vet
         run: go vet ./...
-      - name: 零依赖检查
+      - name: 命令行不链接第三方代码
+        # 模块里有了 MyGo（给窗口版用），但命令行的导入图里不能出现它：
+        # 「单个静态二进制、不带运行环境」这条是对命令行的承诺。
         run: |
-          if go list -m all | tail -n +2 | grep -q .; then
-            echo "本项目不应包含第三方模块依赖"
-            go list -m all
+          deps=$(go list -deps ./cmd/dlg ./pkg/dlg)
+          if echo "$deps" | grep -q 'github.com/egoist/mygo'; then
+            echo "命令行或库层不应依赖 MyGo，实际依赖："
+            echo "$deps" | grep 'github.com/egoist/mygo'
             exit 1
           fi
 
@@ -49,17 +51,35 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version-file: go.mod
           cache: true
       # macOS ARM runner 上 -race 编出来的测试二进制缺 LC_UUID，dyld 加载即 abort，
       # 属于平台问题而非代码问题，因此只在其他平台启用竞态检测。
-      # （Go 1.22 连普通测试二进制都有这个问题，所以工具链提到了 1.24。）
+      #
+      # 窗口版的视图测试（gui）只在 macOS 上跑：它在内存里渲染真实字体，Linux 与
+      # Windows 的 runner 上还没验证过。命令行与库层的测试三个平台都跑。
       - name: go test
         if: runner.os != 'macOS'
-        run: go test -race ./...
+        run: go test -race ./internal/... ./pkg/... ./cmd/...
       - name: go test (macOS)
         if: runner.os == 'macOS'
         run: go test ./...
       - name: 跨平台构建校验
         run: |
           go build -trimpath -o /dev/null ./cmd/dlg
+          go build -trimpath -o /dev/null ./gui
+
+  gui:
+    name: 桌面客户端（macOS）
+    # 打包、mygo vet、深色浅色截图都依赖 macOS 上的字体与图形栈。
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go tool mygo vet
+        run: cd gui && go tool mygo vet .
+      - name: 打包校验
+        run: cd gui && go tool mygo build -platform darwin/arm64 -skip-dmg

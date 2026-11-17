@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Cross-compiles static binaries and packages them as zip archives.
-# Requires Go 1.22+ and Info-ZIP. No cgo, no third-party modules.
+# Requires the toolchain of go.mod (1.27.3+) and Info-ZIP. No cgo: the command
+# line itself pulls in no third-party code, whatever the module requires.
 set -euo pipefail
 
 cd "$(dirname "$0")"

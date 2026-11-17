@@ -6,24 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/12ain/decrypt-lastgood/internal/console"
-	"github.com/12ain/decrypt-lastgood/internal/container"
-	"github.com/12ain/decrypt-lastgood/internal/telnet"
+	"github.com/12ain/decrypt-lastgood/pkg/dlg"
 )
 
 // Version is reported by the version subcommand.
-const Version = "0.1.0"
-
-const defaultRemotePath = "/config/work/lastgood.xml"
-
-// telnetPagePath is the page that toggles telnet on the CMCC firmware. Telnet is
-// off by default, which is the first thing a new user trips over.
-const telnetPagePath = "/webcmcc/telnet_page.html"
+const Version = dlg.Version
 
 // Run executes the CLI and returns a process exit code.
 func Run(args []string, stdout, stderr io.Writer) int {
@@ -71,9 +62,9 @@ func registerFetchFlags(fs *flag.FlagSet, outputDefault, outputUsage string) *fe
 	return &fetchFlags{
 		user:     fs.String("u", "", "telnet 用户名（必填，通常是机身标签上的普通账号）"),
 		password: fs.String("p", "", "telnet 密码；省略则提示输入"),
-		port:     fs.Int("P", 23, "telnet 端口"),
-		remote:   fs.String("r", defaultRemotePath, "远端文件路径"),
-		timeout:  fs.Float64("t", 8, "连接超时（秒）"),
+		port:     fs.Int("P", dlg.DefaultPort, "telnet 端口"),
+		remote:   fs.String("r", dlg.DefaultRemotePath, "远端文件路径"),
+		timeout:  fs.Float64("t", dlg.DefaultTimeout.Seconds(), "连接超时（秒）"),
 		output:   fs.String("o", outputDefault, outputUsage),
 		verbose:  fs.Bool("v", false, "打印完整 telnet 会话记录"),
 	}
@@ -101,41 +92,48 @@ func (f *fetchFlags) resolve(stderr io.Writer) (string, error) {
 	return secret, nil
 }
 
+// config is the device and the session to it, as the flags describe them.
+func (f *fetchFlags) config(host, secret string, stderr io.Writer) dlg.Config {
+	cfg := dlg.Config{
+		Host:       host,
+		Port:       *f.port,
+		User:       *f.user,
+		Password:   secret,
+		RemotePath: *f.remote,
+		Timeout:    time.Duration(*f.timeout * float64(time.Second)),
+	}
+	// The transcript has to start before login, otherwise the most
+	// interesting part of a failed session is missing from -v output.
+	if *f.verbose {
+		fmt.Fprintf(stderr, "正在连接 %s:%d ...\n----- telnet 会话（>> 发送 << 接收）-----\n", host, *f.port)
+		cfg.Transcript = stderr
+	}
+	return cfg
+}
+
+// report prints the steps of a fetch when -v asked for them.
+func (f *fetchFlags) report(stderr io.Writer) func(dlg.Progress) {
+	if !*f.verbose {
+		return nil
+	}
+	return func(p dlg.Progress) {
+		if p.Stage == dlg.StageDownload {
+			fmt.Fprintf(stderr, "正在读取 %s ...\n", p.Detail)
+		}
+	}
+}
+
 // fetch logs in and returns the encrypted config, with the -v transcript
 // attached when requested.
 func (f *fetchFlags) fetch(host, secret string, stderr io.Writer) ([]byte, error) {
-	// The transcript has to start before login, otherwise the most interesting
-	// part of a failed session is missing from -v output.
-	var transcript io.Writer
-	if *f.verbose {
-		fmt.Fprintf(stderr, "正在连接 %s:%d ...\n----- telnet 会话（>> 发送 << 接收）-----\n", host, *f.port)
-		transcript = stderr
-	}
-
-	client, err := telnet.Dial(telnet.Target{
-		Host:    host,
-		Port:    *f.port,
-		User:    *f.user,
-		Pass:    secret,
-		Timeout: time.Duration(*f.timeout * float64(time.Second)),
-		Debug:   transcript,
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer client.Close()
-
-	if *f.verbose {
-		fmt.Fprintf(stderr, "正在读取 %s ...\n", *f.remote)
-	}
-	return client.FetchFile(*f.remote)
+	return dlg.Fetch(f.config(host, secret, stderr), f.report(stderr))
 }
 
 func runOneShot(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("dlg", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
-	flags := registerFetchFlags(fs, "lastgood.xml", "解密后的输出文件")
+	flags := registerFetchFlags(fs, dlg.DefaultOutput, "解密后的输出文件")
 
 	host, err := parse(fs, args, flags.valueFlags(), 1)
 	if err != nil {
@@ -147,29 +145,30 @@ func runOneShot(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 
-	encrypted, err := flags.fetch(host, secret, stderr)
+	cfg := flags.config(host, secret, stderr)
+	encrypted, err := dlg.Fetch(cfg, flags.report(stderr))
 	if err != nil {
 		return failWithHint(stderr, err, host)
 	}
 
-	plain, err := container.DecryptXML(encrypted)
+	plain, err := dlg.Decrypt(encrypted)
 	if err != nil {
 		return fail(stderr, err)
 	}
 
-	if err := os.WriteFile(*flags.output, plain, 0o600); err != nil {
+	if err := dlg.WriteFile(*flags.output, plain); err != nil {
 		return fail(stderr, err)
 	}
 
-	cred := container.FindCredential(plain)
+	cred := dlg.ReadCredential(plain)
 	if !cred.Complete() {
 		fmt.Fprintln(stderr, "未能在配置文件中定位超级管理员账号（aucTeleAccountName / aucTeleAccountPassword）")
-		fmt.Fprintf(stdout, "配置文件：%s\n", absolute(*flags.output))
+		fmt.Fprintf(stdout, "配置文件：%s\n", dlg.AbsolutePath(*flags.output))
 		return 1
 	}
 
 	printCredential(stdout, cred)
-	fmt.Fprintf(stdout, "\n配置文件：%s\n", absolute(*flags.output))
+	fmt.Fprintf(stdout, "\n配置文件：%s\n", dlg.AbsolutePath(*flags.output))
 	return 0
 }
 
@@ -177,7 +176,7 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("download", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
-	flags := registerFetchFlags(fs, "lastgood.xml.enc", "本地输出文件")
+	flags := registerFetchFlags(fs, dlg.DefaultEncryptedOutput, "本地输出文件")
 
 	host, err := parse(fs, args, flags.valueFlags(), 1)
 	if err != nil {
@@ -194,10 +193,10 @@ func runDownload(args []string, stdout, stderr io.Writer) int {
 		return failWithHint(stderr, err, host)
 	}
 
-	if err := os.WriteFile(*flags.output, data, 0o600); err != nil {
+	if err := dlg.WriteFile(*flags.output, data); err != nil {
 		return fail(stderr, err)
 	}
-	fmt.Fprintf(stdout, "文件已下载：%s\n", absolute(*flags.output))
+	fmt.Fprintf(stdout, "文件已下载：%s\n", dlg.AbsolutePath(*flags.output))
 	fmt.Fprintf(stdout, "解密：dlg decrypt %s --show-cred\n", *flags.output)
 	return 0
 }
@@ -206,7 +205,7 @@ func runDecrypt(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("decrypt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
-	output := fs.String("o", "lastgood.xml", "解密后的输出文件")
+	output := fs.String("o", dlg.DefaultOutput, "解密后的输出文件")
 	showCred := fs.Bool("show-cred", false, "解密后直接打印超级管理员账号密码")
 
 	input, err := parse(fs, args, map[string]bool{"o": true}, 1)
@@ -214,23 +213,23 @@ func runDecrypt(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 
-	encrypted, err := os.ReadFile(input)
+	encrypted, err := dlg.ReadFile(input)
 	if err != nil {
 		return fail(stderr, err)
 	}
 
-	plain, err := container.DecryptXML(encrypted)
+	plain, err := dlg.Decrypt(encrypted)
 	if err != nil {
 		return fail(stderr, err)
 	}
 
-	if err := os.WriteFile(*output, plain, 0o600); err != nil {
+	if err := dlg.WriteFile(*output, plain); err != nil {
 		return fail(stderr, err)
 	}
-	fmt.Fprintf(stdout, "文件已解密：%s\n", absolute(*output))
+	fmt.Fprintf(stdout, "文件已解密：%s\n", dlg.AbsolutePath(*output))
 
 	if *showCred {
-		cred := container.FindCredential(plain)
+		cred := dlg.ReadCredential(plain)
 		if !cred.Complete() {
 			fmt.Fprintln(stderr, "未能在配置文件中定位超级管理员账号（aucTeleAccountName / aucTeleAccountPassword）")
 			return 1
@@ -242,7 +241,7 @@ func runDecrypt(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func printCredential(w io.Writer, cred container.Credential) {
+func printCredential(w io.Writer, cred dlg.Credential) {
 	fmt.Fprintf(w, "超级管理员账号：%s\n超级管理员密码：%s\n", cred.User, cred.Password)
 }
 
@@ -253,18 +252,6 @@ func looksLikeHost(arg string) bool {
 	return arg == "localhost" || strings.ContainsAny(arg, ".:")
 }
 
-// telnetPageURL builds the page that toggles telnet for the given device.
-func telnetPageURL(host string) string {
-	return "http://" + host + telnetPagePath
-}
-
-// isConnectError tells "could not reach the device" apart from "reached it, but
-// the credentials or the shell are wrong": only the former deserves the
-// enable-telnet hint.
-func isConnectError(err error) bool {
-	return strings.Contains(err.Error(), "connect to")
-}
-
 func printTelnetHint(w io.Writer, host string) {
 	fmt.Fprintf(w, `
 连不上 23 端口，通常是光猫的 Telnet 还没开。先做这一步：
@@ -272,7 +259,7 @@ func printTelnetHint(w io.Writer, host string) {
   2. 用机身标签上的普通账号登录，把 Telnet 开关打开并保存
   3. 重新执行本命令
 
-`, telnetPageURL(host))
+`, dlg.TelnetPageURL(host))
 }
 
 // parse splits a mix of positional arguments and flags, verifies the
@@ -313,19 +300,11 @@ func partition(args []string, valueFlags map[string]bool) (positional, flags []s
 	return positional, flags
 }
 
-func absolute(path string) string {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return path
-	}
-	return abs
-}
-
 // failWithHint reports a fetch failure and, when the device could not be
 // reached at all, explains how to turn telnet on.
 func failWithHint(stderr io.Writer, err error, host string) int {
 	code := fail(stderr, err)
-	if isConnectError(err) {
+	if dlg.IsConnectError(err) {
 		printTelnetHint(stderr, host)
 	}
 	return code
@@ -365,6 +344,9 @@ func usage(w io.Writer) {
 
 decrypt 参数：
   --show-cred  解密后直接打印超级管理员账号密码
+
+图形界面：同一仓库的 gui/ 是个原生窗口客户端，填地址和账号点一下就行，
+不用记参数。见 docs/GUI.md。
 
 示例：
   dlg 192.168.1.1 -u user -p 标签上的密码

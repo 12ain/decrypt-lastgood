@@ -1,0 +1,9 @@
+{
+  "name": "dlg",
+  "slug": "dlg",
+  "identifier": "io.github.12ain.dlg",
+  "version": "0.2.0",
+  "copyright": "© 2026 12ain",
+  "license": "MIT",
+  "out": "build"
+}

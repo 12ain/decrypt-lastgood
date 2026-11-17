@@ -16,12 +16,13 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          # 与 ci.yml 保持一致：1.22 的 Mach-O 缺 LC_UUID，macOS 上会被 dyld 拒绝
-          go-version: "1.24"
+          # 与 ci.yml 保持一致，唯一的来源是 go.mod
+          go-version-file: go.mod
           cache: true
 
       - name: 测试
-        run: go test ./...
+        # 窗口版的视图测试在 macOS 的 job 里跑，这里只跑命令行与库层
+        run: go test ./internal/... ./pkg/... ./cmd/...
 
       - name: 交叉编译并打包
         run: ./build.sh
@@ -41,3 +42,40 @@ jobs:
               --title "v${VERSION}" \
               --generate-notes
           fi
+
+  desktop:
+    name: 打包桌面客户端
+    # macOS 上能出签名后的 .app 和 dmg，顺便交叉编译 Windows 和 Linux 的产物；
+    # Windows 安装包需要 NSIS，没有就跳过。
+    needs: release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 视图测试
+        run: |
+          go test ./gui
+          cd gui && go tool mygo vet .
+
+      - name: 打包
+        run: ./build-gui.sh -platform darwin/universal,windows/amd64,linux/amd64
+
+      - name: 压缩并上传
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p gui-dist
+          for dir in gui/build/*/; do
+            name="$(basename "$dir")"
+            os="${name%%-*}"
+            arch="${name##*-}"
+            (cd gui/build && zip -qry "../../gui-dist/dlg_gui_${VERSION}_${os}_${arch}.zip" "$name")
+          done
+
+          gh release upload "$GITHUB_REF_NAME" gui-dist/*.zip --clobber
