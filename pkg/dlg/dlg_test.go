@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -93,8 +94,12 @@ func TestWriteFileIsPrivateAndCreatesDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Fatalf("mode = %o, want 600: the file holds the administrator password", perm)
+	// Windows has no Unix permission bits: the mode there says little about who
+	// can read the file, so only the Unix builds check it.
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("mode = %o, want 600: the file holds the administrator password", perm)
+		}
 	}
 }
 
