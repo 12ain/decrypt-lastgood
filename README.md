@@ -1,12 +1,18 @@
 # decrypt-lastgood
 
 通过 telnet 从九联 `UNG953H1-S` 光猫取回 `lastgood.xml`，在本地解密，拿到超级管理员
-账号和密码。改桥接、关 TR-069 用得上。单个静态二进制，不用装运行环境。
+账号和密码。改桥接、关 TR-069 用得上。
+
+两种用法，做的事完全一样：
+
+- **桌面客户端**：原生窗口，下载解压双击就能用，填地址点一下拿密码（[见下](#桌面客户端)）
+- **命令行**：一条命令，单个静态二进制，适合脚本和远程（[见下](#命令行)）
 
 [![Go](https://img.shields.io/badge/Go-1.27.3%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Desktop](https://img.shields.io/badge/desktop-native%20UI-4f46e5.svg)](#桌面客户端)
 [![CLI dependencies](https://img.shields.io/badge/CLI_deps-0-brightgreen.svg)](#技术取舍)
-[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macOS%20%7C%20linux-lightgrey.svg)](#安装)
+[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macOS%20%7C%20linux-lightgrey.svg)](#桌面客户端)
 
 > Go 重写版。原始实现是 [joestar817/decrypt-lastgood](https://github.com/joestar817/decrypt-lastgood)。
 
@@ -15,23 +21,6 @@
 > `connection refused`。用机身标签上的普通账号登录
 > <http://192.168.1.1/webcmcc/telnet_page.html>，打开开关并保存，再往下看。
 > 详见[第一步：开启 Telnet](#第一步开启-telnet)。
-
-## 背景
-
-光猫后台只给普通账号，改桥接要用的超级管理员密码一般已被 TR-069 刷成随机值。九联这台
-机器的超密存在 `/config/work/lastgood.xml`，新版固件又给文件加了密，`cat` 出来是二进制。
-手工走 telnet、`base64`、本地解密太麻烦，所以有了这个工具。
-
-## 特性
-
-- 一条命令拿到超管账号密码：下载、解密、提取一次完成
-- 也有桌面客户端：原生窗口，填地址点一下就行，不用记参数（[见下](#桌面客户端)）
-- 命令行不链接任何第三方代码，PBKDF2 和 telnet 客户端都是标准库写的
-- 编出来是单个文件，Windows 上只用系统自带的 `kernel32.dll`
-- `decrypt --show-cred`（或默认命令）直接把账号密码打出来，不用自己 grep XML
-- 对光猫只跑 `echo`、`wc -c`、`base64` 这类只读命令，不改配置
-- 下载后拿 `wc -c` 的字节数校验一遍
-- Windows（x64 / ARM64）、macOS、Linux 都有
 
 ## 第一步：开启 Telnet
 
@@ -47,7 +36,54 @@
 V1.0.03 部分地区的固件这个开关点了也不生效，属于固件限制，跟工具无关。用完记得把它关掉，
 23 端口是明文调试通道。
 
-## 安装
+## 桌面客户端
+
+界面由 Go 原生绘制（Metal / Direct3D 11 / OpenGL），没有 webview，也不用装浏览器运行时，
+双击就是界面。
+
+![桌面客户端](docs/images/gui-light.png)
+
+三个标签对应后面命令行的三条路径：**获取凭据**（下载 + 解密 + 显示账号密码）、**仅下载**、
+**解密本地文件**。右边是账号卡片和运行日志，密码默认打码，账号、密码、路径都能一键复制；
+连不上 telnet 时直接给「打开开启 Telnet 的页面」的链接。勾上「记录 telnet 会话」就等于
+命令行的 `-v`，把原始收发也记下来。
+
+从 [Releases](../../releases) 下载：
+
+| 平台 | 压缩包 |
+| --- | --- |
+| macOS（Apple Silicon 与 Intel） | `dlg_gui_<版本>_darwin_universal.zip` |
+| Windows x64 | `dlg_gui_<版本>_windows_amd64.zip` |
+| Linux x64 | `dlg_gui_<版本>_linux_amd64.zip` |
+
+三步：
+
+1. 解压压缩包。macOS 把 `dlg.app` 拖进「应用程序」；Windows 直接双击 `dlg.exe`
+2. 打开，填光猫地址、机身标签上的普通账号和密码
+3. 点「获取超级管理员密码」，账号和密码出现在右边，一键复制
+
+macOS 包没做公证（ad-hoc 签名），第一次打开如果提示「已损坏」或「无法验证开发者」，
+去掉下载隔离标记就行（`/Applications/dlg.app` 换成你的实际位置）：
+
+```bash
+xattr -d com.apple.quarantine /Applications/dlg.app
+```
+
+还是拦的话，递归清一遍 `xattr -dr com.apple.quarantine /Applications/dlg.app`，或者右键
+「打开」。Linux 包里另有 `.deb`、`.rpm` 和 `PKGBUILD`。
+
+自己打包（Go 1.27.3 以上，`go.mod` 里的版本）：
+
+```bash
+./build-gui.sh                 # 当前平台，产物在 gui/build/<os>-<arch>/
+cd gui && go run .             # 开发时直接跑
+```
+
+界面、架构、测试和已知限制见 [docs/GUI.md](docs/GUI.md)。
+
+## 命令行
+
+同一套逻辑的命令行入口，单个静态二进制，不链接任何第三方代码，适合脚本、远程和批量。
 
 从 [Releases](../../releases) 下载对应平台的压缩包，解压即用：
 
@@ -61,38 +97,11 @@ V1.0.03 部分地区的固件这个开关点了也不生效，属于固件限制
 
 包里是二进制、README 和 LICENSE。macOS 和 Linux 解压后如果提示权限不足，`chmod +x` 一下。
 
-窗口版是另一个包，`dlg_gui_<版本>_<os>_<arch>.zip`（macOS 里是 `.app` 和 dmg，Windows 是
-`.exe`，Linux 是可执行文件和安装包），见[桌面客户端](#桌面客户端)。
-
-需要自己编的话，Go 1.27.3 以上（`go.mod` 里写的版本，窗口版用的 MyGo 要求的），不需要 cgo：
+macOS 上从浏览器下载的包会带隔离标记，直接运行可能被拦下，去掉它：
 
 ```bash
-go build -trimpath -ldflags "-s -w" -o dlg ./cmd/dlg
-./build.sh    # 全平台，输出到 dist/
+xattr -d com.apple.quarantine ./dlg
 ```
-
-## 桌面客户端
-
-不想记参数就用窗口版。同一个仓库的 `gui/`，界面由 Go 原生绘制（Metal / Direct3D 11 /
-OpenGL），没有 webview，也不用装浏览器运行时，打开就是界面。
-
-![桌面客户端](docs/images/gui-light.png)
-
-三个标签对应命令行的三条路径：**获取凭据**（下载 + 解密 + 显示账号密码）、**仅下载**、
-**解密本地文件**。右边是账号卡片和运行日志，密码默认打码，账号、密码、路径都能一键复制；
-连不上 telnet 时直接给「打开开启 Telnet 的页面」的链接。勾上「记录 telnet 会话」就等于
-命令行的 `-v`。
-
-自己打包（同一条命令，产物在 `gui/build/<os>-<arch>/`）：
-
-```bash
-./build-gui.sh                 # 当前平台
-cd gui && go run .             # 开发时直接跑
-```
-
-细节、架构和已知限制见 [docs/GUI.md](docs/GUI.md)。
-
-## 用法
 
 一条命令就够了，下载、解密、提取三件事一次做完：
 
@@ -133,10 +142,34 @@ dlg decrypt lastgood.xml.enc --show-cred                # 解密并打印账号�
 
 主机地址写在参数前或后都行。退出码：成功 `0`，运行时出错 `1`，参数用错 `2`。
 
+需要自己编的话，Go 1.27.3 以上（`go.mod` 里写的版本，窗口版用的 MyGo 要求的），不需要 cgo：
+
+```bash
+go build -trimpath -ldflags "-s -w" -o dlg ./cmd/dlg
+./build.sh    # 全平台，输出到 dist/
+```
+
+## 特性
+
+- 桌面客户端：原生窗口，填地址点一下，不用记参数
+- 一条命令也能做完同样的事：下载、解密、提取一次完成
+- 命令行不链接任何第三方代码，PBKDF2 和 telnet 客户端都是标准库写的
+- 编出来是单个文件，Windows 上只用系统自带的 `kernel32.dll`
+- `decrypt --show-cred`（或默认命令）直接把账号密码打出来，不用自己 grep XML
+- 对光猫只跑 `echo`、`wc -c`、`base64` 这类只读命令，不改配置
+- 下载后拿 `wc -c` 的字节数校验一遍
+- 两种用法都覆盖 Windows（x64 / ARM64）、macOS、Linux
+
+## 背景
+
+光猫后台只给普通账号，改桥接要用的超级管理员密码一般已被 TR-069 刷成随机值。九联这台
+机器的超密存在 `/config/work/lastgood.xml`，新版固件又给文件加了密，`cat` 出来是二进制。
+手工走 telnet、`base64`、本地解密太麻烦，所以有了这个工具。
+
 ## 排查
 
 先加 `-v` 再跑一次，它会把整段 telnet 会话（发出去的命令、收到的原始字节）打到 stderr，
-大部分问题看一眼就知道卡在哪。
+窗口版对应的是「记录 telnet 会话」那个勾，记录直接进右栏日志。大部分问题看一眼就知道卡在哪。
 
 | 现象 | 原因 |
 | --- | --- |
@@ -164,14 +197,14 @@ go test -race ./...
 ```
 
 覆盖容器往返解密（含多分块）、各类畸形输入、telnet IAC 协商与跨包分片、仿真 telnet 服务器
-（回显、慢速、输出与提示符粘连）、CLI 参数解析与默认命令。
+（回显、慢速、输出与提示符粘连）、CLI 参数解析与默认命令，以及窗口版的界面。
 
-桌面客户端的视图测试不用开窗口，也不会连光猫：
+窗口版那组测试不用开窗口、也不会连光猫：`ui.NewTester` 在内存里渲染，按文字点按钮、输入、
+按快捷键，所以 CI 上跑得跟本地一样。
 
 ```bash
-cd gui
-go test ./...
-go tool mygo vet .
+go test ./gui
+cd gui && go tool mygo vet .
 ```
 
 不接光猫也能验证二进制：
@@ -206,24 +239,26 @@ V1.0.02 验证过。V1.0.03 有些批次开不了 telnet，跟工具本身无关
 
 ## 技术取舍
 
-PBKDF2 在 `golang.org/x/crypto` 里有现成的，但引它进命令行的导入图，「单个静态二进制、
-不带运行环境」就没了。算法本身五十行左右，还能拿公开测试向量逐条对，自己写更好验证。telnet
-同理，`telnetlib3` 是异步框架，而我只要「登录、跑三条命令、读回结果」，用它有点杀鸡用牛刀。
+窗口那一侧：界面得自己画。MyGo 不依赖 webview，整个应用就是一个 Go 程序，装完不用再装浏览器
+运行时，和「不装运行环境」这条线是一致的。它现在是同一个 module 里的一个包（`gui`），
+`go.mod` 里因此有 `require github.com/egoist/mygo`——但命令行的导入图里没有它，`dlg` 编出来
+还是 3.0 MB 的独立二进制，CI 有一条检查盯着这件事。共用逻辑在 `pkg/dlg`，两边谁也没为对方
+将就。
 
-不支持别的厂商，是因为各家容器格式不一样，有用 ZIP 的，有另加一层密钥的。没有实机验证
-就去做通用适配，最后只会给出一堆跑不通的承诺。
+命令行那一侧：PBKDF2 在 `golang.org/x/crypto` 里有现成的，但引它进命令行的导入图，「单个静态
+二进制、不带运行环境」就没了。算法本身五十行左右，还能拿公开测试向量逐条对，自己写更好验证。
+telnet 同理，`telnetlib3` 是异步框架，而我只要「登录、跑三条命令、读回结果」，用它有点杀鸡
+用牛刀。
 
-窗口那一侧反过来：界面得自己画，MyGo 不依赖 webview，一个 Go 程序就是整个应用，和「单文件、
-不装运行环境」这条线是一致的。它现在是同一个 module 里的一个包（`gui`），`go.mod` 里因此有
-`require github.com/egoist/mygo`——但命令行的导入图里没有它，`dlg` 编出来还是 3.0 MB 的
-独立二进制，CI 有一条检查盯着这件事。共用逻辑在 `pkg/dlg`，两边谁也没为对方将就。
+不支持别的厂商，是因为各家容器格式不一样，有用 ZIP 的，有另加一层密钥的。没有实机验证就去
+做通用适配，最后只会给出一堆跑不通的承诺。
 
 一个 module 的代价是工具链：整个仓库跟着 MyGo 要 Go 1.27.3 以上，只编命令行也一样。
 
 ## 延伸阅读
 
+- [docs/GUI.md](docs/GUI.md)：桌面客户端的界面、架构、测试与打包
 - [docs/FORMAT.md](docs/FORMAT.md)：容器格式规范
-- [docs/GUI.md](docs/GUI.md)：桌面客户端的界面、架构与打包
 - [docs/case-study-first-hop-packet-loss.md](docs/case-study-first-hop-packet-loss.md)：
   这工具的由来，一个用 ping 网关区分 CPU 过载和链路误码的案例
 

@@ -42,8 +42,8 @@ cd gui && go tool mygo vet .
 - 界面改动顺手跑一遍 `cd gui && GUI_SNAPSHOT=/tmp/dlg go test . -run TestSnapshot`，
   看一眼 `/tmp/dlg-*.png`，深浅色都要看
 
-包划分看一眼目录就清楚了：`cli` 管命令和文案，`pkg/dlg` 是两边共用的库层，`container`
-管解析解密，`kdf` 是 PBKDF2，`telnet` 是客户端，`console` 是密码输入，`gui` 是窗口。
+包划分看一眼目录就清楚了：`gui` 是窗口，`cli` 管命令和文案，`pkg/dlg` 是两边共用的库层，
+`container` 管解析解密，`kdf` 是 PBKDF2，`telnet` 是客户端，`console` 是密码输入。
 
 改 `gui/` 时别把 `ui.Element` 存进状态：它只属于当前这一帧，下一帧就失效了。慢 IO 丢到
 `app.spawn` 起的 goroutine 里，结果用 `app.post` 回主线程。细节见

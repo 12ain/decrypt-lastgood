@@ -80,7 +80,18 @@ go test ./gui       # 视图测试，不需要窗口，也不会连光猫（在�
 
 产物在 `gui/build/<os>-<arch>/`：macOS 是 `dlg.app` 和 `dlg-<版本>-arm64.dmg`，Windows 是
 `dlg.exe` 和安装包（需要 NSIS，没装就跳过），Linux 是可执行文件加 `.deb` / `.rpm` /
-`PKGBUILD`。macOS 上的签名默认是 ad-hoc，没有开发者证书时第一次打开要右键「打开」。
+`PKGBUILD`。
+
+macOS 上的签名默认是 ad-hoc，没有开发者证书，所以从浏览器下载的包会被 Gatekeeper 拦下，
+提示「已损坏」或者「无法验证开发者」。去掉下载隔离标记再打开（换成你的实际路径）：
+
+```bash
+xattr -d com.apple.quarantine /Applications/dlg.app
+```
+
+清完还拦就递归来一遍 `xattr -dr com.apple.quarantine /Applications/dlg.app`；或者右键
+「打开」，只对这一次生效。要免掉这一步只能拿 Developer ID 证书签名并公证，见
+[distribution](https://github.com/egoist/mygo/blob/main/docs/distribution.md)。
 
 发版时 `.github/workflows/release.yml` 里的 `desktop` job 在 macOS runner 上跑上面这条命令，
 把三个平台的产物分别压成 `dlg_gui_<版本>_<os>_<arch>.zip` 传上去；命令行的压缩包由另一个
