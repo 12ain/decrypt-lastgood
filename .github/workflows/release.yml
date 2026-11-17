@@ -36,7 +36,7 @@ jobs:
           assets=(dist/dlg_*.zip dist/SHA256SUMS)
 
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+            ./scripts/upload-assets.sh "$GITHUB_REF_NAME" "${assets[@]}"
           else
             gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
               --title "v${VERSION}" \
@@ -78,4 +78,4 @@ jobs:
             (cd gui/build && zip -qry "../../gui-dist/dlg_gui_${VERSION}_${os}_${arch}.zip" "$name")
           done
 
-          gh release upload "$GITHUB_REF_NAME" gui-dist/*.zip --clobber
+          ./scripts/upload-assets.sh "$GITHUB_REF_NAME" gui-dist/*.zip
